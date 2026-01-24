@@ -48,6 +48,7 @@ import type { RunEmbeddedPiAgentParams } from "./run/params.js";
 import { buildEmbeddedRunPayloads } from "./run/payloads.js";
 import type { EmbeddedPiAgentMeta, EmbeddedPiRunResult } from "./types.js";
 import { describeUnknownError } from "./utils.js";
+import { compactEmbeddedPiSession } from "./compact.js";
 
 type ApiKeyInfo = ResolvedProviderAuth;
 
@@ -218,6 +219,8 @@ export async function runEmbeddedPiAgent(
         if (!advanced) throw err;
       }
 
+      let didAttemptOverflowCompaction = false;
+
       try {
         while (true) {
           attemptedThinking.add(thinkLevel);
@@ -281,6 +284,45 @@ export async function runEmbeddedPiAgent(
           if (promptError && !aborted) {
             const errorText = describeUnknownError(promptError);
             if (isContextOverflowError(errorText)) {
+              // Only attempt compaction once per run to prevent infinite loops
+              if (!didAttemptOverflowCompaction) {
+                didAttemptOverflowCompaction = true;
+                log.warn("Context overflow detected, attempting auto-compaction...");
+
+                try {
+                  const compactResult = await compactEmbeddedPiSession({
+                    sessionId: params.sessionId,
+                    sessionKey: params.sessionKey,
+                    messageChannel: params.messageChannel,
+                    messageProvider: params.messageProvider,
+                    agentAccountId: params.agentAccountId,
+                    sessionFile: params.sessionFile,
+                    workspaceDir: params.workspaceDir,
+                    agentDir,
+                    config: params.config,
+                    skillsSnapshot: params.skillsSnapshot,
+                    provider,
+                    model: modelId,
+                    thinkLevel: params.thinkLevel,
+                    reasoningLevel: params.reasoningLevel,
+                    bashElevated: params.bashElevated,
+                    lane: params.lane,
+                    enqueue: params.enqueue,
+                    extraSystemPrompt: params.extraSystemPrompt,
+                    ownerNumbers: params.ownerNumbers,
+                  });
+
+                  if (compactResult.ok && compactResult.compacted) {
+                    log.info("Auto-compaction successful, retrying request...");
+                    continue; // Retry the request
+                  }
+                  log.warn(`Auto-compaction failed: ${compactResult.reason ?? "unknown"}`);
+                } catch (compactErr) {
+                  log.error(`Auto-compaction threw error: ${describeUnknownError(compactErr)}`);
+                }
+              }
+
+              // Compaction failed or already attempted - return original error
               const kind = isCompactionFailureError(errorText)
                 ? "compaction_failure"
                 : "context_overflow";
@@ -289,7 +331,8 @@ export async function runEmbeddedPiAgent(
                   {
                     text:
                       "Context overflow: prompt too large for the model. " +
-                      "Try again with less input or a larger-context model.",
+                      "Auto-compaction was attempted but failed. " +
+                      "Try /new to start a fresh session or use a larger-context model.",
                     isError: true,
                   },
                 ],
