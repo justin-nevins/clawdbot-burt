@@ -17,6 +17,10 @@ import {
 import { loadInternalHooks } from "../hooks/loader.js";
 import type { loadClawdbotPlugins } from "../plugins/loader.js";
 import { type PluginServicesHandle, startPluginServices } from "../plugins/services.js";
+import { startQuotaWorker, type QuotaConfig } from "../agents/quota-tracker.js";
+import { startPrefetchWorker } from "../prefetch/status-worker.js";
+import type { PrefetchConfig } from "../prefetch/types.js";
+import { CONFIG_DIR } from "../utils.js";
 import { startBrowserControlServerIfEnabled } from "./server-browser.js";
 import {
   scheduleRestartSentinelWake,
@@ -139,6 +143,47 @@ export async function startGatewaySidecars(params: {
     }, 250);
   }
 
+  // Start prefetch worker if configured (collects status data for injection into context)
+  let prefetchWorker: { stop: () => void } | null = null;
+  const prefetchConfig = (params.cfg as Record<string, unknown>).prefetch as
+    | PrefetchConfig
+    | undefined;
+  if (prefetchConfig?.enabled) {
+    try {
+      prefetchWorker = startPrefetchWorker({
+        config: prefetchConfig,
+        workspaceDir: params.defaultWorkspaceDir,
+        log: {
+          info: (msg) => params.logHooks.info(msg),
+          error: (msg) => params.logHooks.error(msg),
+        },
+      });
+      params.logHooks.info("prefetch worker started");
+    } catch (err) {
+      params.logHooks.error(`prefetch worker failed to start: ${String(err)}`);
+    }
+  }
+
+  // Start quota worker if configured (tracks Claude Pro token usage for proactive fallback)
+  let quotaWorker: { stop: () => void } | null = null;
+  const quotaConfig = (params.cfg?.agents?.defaults as Record<string, unknown> | undefined)
+    ?.quotaTracking as QuotaConfig | undefined;
+  if (quotaConfig?.enabled) {
+    try {
+      quotaWorker = startQuotaWorker({
+        clawdbotDir: CONFIG_DIR,
+        config: quotaConfig,
+        log: {
+          info: (msg) => params.logHooks.info(msg),
+          error: (msg) => params.logHooks.error(msg),
+        },
+      });
+      params.logHooks.info("quota worker started");
+    } catch (err) {
+      params.logHooks.error(`quota worker failed to start: ${String(err)}`);
+    }
+  }
+
   let pluginServices: PluginServicesHandle | null = null;
   try {
     pluginServices = await startPluginServices({
@@ -156,5 +201,5 @@ export async function startGatewaySidecars(params: {
     }, 750);
   }
 
-  return { browserControl, pluginServices };
+  return { browserControl, pluginServices, prefetchWorker, quotaWorker };
 }

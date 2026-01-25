@@ -6,7 +6,9 @@ import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
 import { resolveModelAuthMode } from "../../agents/model-auth.js";
 import { isCliProvider } from "../../agents/model-selection.js";
 import { queueEmbeddedPiMessage } from "../../agents/pi-embedded.js";
+import { recordUsage as recordQuotaUsage, type QuotaConfig } from "../../agents/quota-tracker.js";
 import { hasNonzeroUsage } from "../../agents/usage.js";
+import { CONFIG_DIR } from "../../utils.js";
 import {
   resolveAgentIdFromSessionKey,
   resolveSessionFilePath,
@@ -506,6 +508,25 @@ export async function runReplyAgent(params: {
           });
         } catch (err) {
           logVerbose(`failed to persist model/context update: ${String(err)}`);
+        }
+      }
+
+      // Record usage to quota tracker for proactive model switching
+      const quotaConfig = (cfg?.agents?.defaults as Record<string, unknown> | undefined)
+        ?.quotaTracking as QuotaConfig | undefined;
+      if (quotaConfig?.enabled && hasNonzeroUsage(usage)) {
+        const trackedProvider = quotaConfig.provider ?? "anthropic";
+        if (providerUsed === trackedProvider) {
+          try {
+            recordQuotaUsage({
+              clawdbotDir: CONFIG_DIR,
+              input: usage.input ?? 0,
+              output: usage.output ?? 0,
+              provider: providerUsed,
+            });
+          } catch (err) {
+            logVerbose(`failed to record quota usage: ${String(err)}`);
+          }
         }
       }
     }

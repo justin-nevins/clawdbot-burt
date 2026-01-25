@@ -243,6 +243,23 @@ export type AgentDefaultsConfig = {
     /** Auto-prune sandbox containers. */
     prune?: SandboxPruneSettings;
   };
+  /** Proactive quota tracking for Claude Pro rate limit avoidance. */
+  quotaTracking?: {
+    /** Enable quota tracking (default: false). */
+    enabled?: boolean;
+    /** Rolling window in hours (default: 5). */
+    windowHours?: number;
+    /** Token threshold before switching (default: 150000). */
+    thresholdTokens?: number;
+    /** Switch at this ratio of threshold (default: 0.8 = 80%). */
+    switchRatio?: number;
+    /** Minimum time on fallback in minutes (default: 60). */
+    cooldownMinutes?: number;
+    /** Quota check interval in ms (default: 300000 = 5 min). */
+    checkIntervalMs?: number;
+    /** Provider to track (default: "anthropic"). */
+    provider?: string;
+  };
 };
 
 export type AgentCompactionMode = "default" | "safeguard";

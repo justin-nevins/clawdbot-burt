@@ -1,4 +1,5 @@
 import type { ClawdbotConfig } from "../config/config.js";
+import { CONFIG_DIR } from "../utils.js";
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from "./defaults.js";
 import {
   coerceToFailoverError,
@@ -14,6 +15,7 @@ import {
   resolveModelRefFromString,
 } from "./model-selection.js";
 import type { FailoverReason } from "./pi-embedded-helpers.js";
+import { shouldUseFallback, type QuotaConfig } from "./quota-tracker.js";
 
 type ModelCandidate = {
   provider: string;
@@ -205,12 +207,31 @@ export async function runWithModelFallback<T>(params: {
   model: string;
   attempts: FallbackAttempt[];
 }> {
-  const candidates = resolveFallbackCandidates({
+  let candidates = resolveFallbackCandidates({
     cfg: params.cfg,
     provider: params.provider,
     model: params.model,
     fallbacksOverride: params.fallbacksOverride,
   });
+
+  // Check quota tracking - if enabled and quota exceeded, skip the primary anthropic model
+  const quotaConfig = (params.cfg?.agents?.defaults as Record<string, unknown> | undefined)
+    ?.quotaTracking as QuotaConfig | undefined;
+  if (quotaConfig?.enabled) {
+    try {
+      const trackedProvider = quotaConfig.provider ?? "anthropic";
+      if (shouldUseFallback(CONFIG_DIR) && candidates.length > 1) {
+        // Filter out the tracked provider from candidates (keep fallbacks)
+        const filtered = candidates.filter((c) => c.provider !== trackedProvider);
+        if (filtered.length > 0) {
+          candidates = filtered;
+        }
+      }
+    } catch {
+      // Quota check failed, continue with normal flow
+    }
+  }
+
   const attempts: FallbackAttempt[] = [];
   let lastError: unknown;
 
