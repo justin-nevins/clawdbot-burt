@@ -23,21 +23,26 @@ curl -s -X POST https://meet-api.nevins.cloud/api/scheduled-meetings \
   -H "X-API-Key: $BOOM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "clientName": "CLIENT_NAME",
-    "clientEmail": "CLIENT_EMAIL",
+    "attendees": [
+      {"name": "ATTENDEE_NAME", "email": "ATTENDEE_EMAIL"}
+    ],
     "scheduledAt": "ISO_8601_DATETIME",
     "hostEmail": "HOST_EMAIL"
   }'
 ```
 
 **Parameters**:
-- `clientName` (required): The name of the person being invited
-- `clientEmail` (required): Their email address (receives invite + ICS calendar file)
+- `attendees` (required): Array of attendee objects, each with:
+  - `name` (required): The attendee's name
+  - `email` (optional): Their email address (receives invite + ICS calendar file)
 - `scheduledAt` (required): ISO 8601 datetime with timezone, e.g. `2026-03-05T14:00:00Z`
 - `hostEmail` (required): The host's email. Must be a registered Boom user. Available hosts:
   - `justin@nevinstech.com` (Justin)
   - `burt@nevinstech.com` (Burt)
   - `justinnevins@protonmail.com` (Justin N)
+
+**Legacy single-client format** (still supported):
+- `clientName` + `clientEmail` instead of `attendees` array
 
 **Response**:
 ```json
@@ -46,6 +51,9 @@ curl -s -X POST https://meet-api.nevins.cloud/api/scheduled-meetings \
   "roomName": "jumping-compass",
   "scheduledAt": "2026-03-05T14:00:00Z",
   "inviteLink": "https://meet.nevins.cloud/join/jumping-compass",
+  "attendees": [
+    {"name": "John Doe", "email": "john@example.com"}
+  ],
   "clientName": "John Doe",
   "clientEmail": "john@example.com"
 }
@@ -86,7 +94,7 @@ The client automatically receives a cancellation email.
 
 ## Guidelines
 
-- When the user says "schedule a meeting with [person]", ask for: their email, preferred date/time, and which host to use (default to `justin@nevinstech.com` if not specified).
+- When the user says "schedule a meeting", ask for: attendee names and emails, preferred date/time, and which host to use (default to `justin@nevinstech.com` if not specified).
 - Convert natural language times to ISO 8601. If the user says "tomorrow at 2pm", calculate the correct datetime. Assume US Eastern time unless told otherwise.
 - After scheduling, always report back: the meeting time, invite link, and confirm that the invite email was sent.
 - If the user asks to cancel, you need to list meetings first to find the ID, then cancel.
